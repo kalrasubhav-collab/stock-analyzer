@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StockSense AI — NSE/BSE Analyzer{% if fundamentals %} · {{ fundamentals.company_name }}{% endif %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<!-- ── Loading Overlay ─────────────────────────────────── -->
+<div id="loadingOverlay" class="loading-overlay hidden">
+  <div class="spinner"></div>
+  <div class="loading-text">
+    <h3>Analyzing <span id="loadingSymbol">…</span></h3>
+    <p>This usually takes 10–20 seconds</p>
+  </div>
+  <div class="loading-steps">
+    <div class="loading-step"><div class="step-dot"></div> Fetching market data from NSE/BSE</div>
+    <div class="loading-step"><div class="step-dot"></div> Calculating technical indicators</div>
+    <div class="loading-step"><div class="step-dot"></div> Running AI analysis with Claude</div>
+  </div>
+</div>
+
+<!-- ── Header ──────────────────────────────────────────── -->
+<header class="site-header">
+  <div class="container">
+    <div class="logo">
+      <span class="logo-icon">🇮🇳</span>
+      <div>
+        <span class="logo-title">StockSense AI</span>
+        <span class="logo-subtitle">NSE · BSE Market Analyzer</span>
+      </div>
+    </div>
+    <div class="header-badge">✦ Powered by Claude AI</div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── Hero / Search ─────────────────────────────────── -->
+  <section class="hero">
+    <div class="container">
+      <h1>Analyze Any Indian Stock</h1>
+      <p class="hero-subtitle">AI-powered technical &amp; fundamental analysis — NSE &amp; BSE markets</p>
+
+      <form class="search-form" method="POST" action="/analyze" id="analyzeForm">
+        <div class="search-box">
+          <input
+            type="text"
+            name="symbol"
+            id="symbolInput"
+            placeholder="Enter symbol: RELIANCE.NS, TCS.NS, INFY.NS…"
+            value="{{ symbol or '' }}"
+            autocomplete="off"
+            spellcheck="false"
+            required
+          >
+          <button type="submit" id="submitBtn">
+            <span>Analyze</span>
+            <span>→</span>
+          </button>
+        </div>
+      </form>
+
+      <div class="examples">
+        <span class="examples-label">Popular:</span>
+        {% for ex in ['RELIANCE.NS', 'TCS.NS', 'HDFCBANK.NS', 'INFY.NS', 'WIPRO.NS', 'ICICIBANK.NS'] %}
+        <button class="example-chip" type="button" onclick="fillAndSubmit('{{ ex }}')">{{ ex }}</button>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Error Banner ──────────────────────────────────── -->
+  {% if error %}
+  <div class="container">
+    <div class="error-card">
+      <span>⚠️</span>
+      <span>{{ error }}</span>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ══════════════════════════════════════════════════════
+       RESULTS
+  ══════════════════════════════════════════════════════ -->
+  {% if technicals %}
+  {% set ma  = technicals.moving_averages %}
+  {% set rsi = technicals.rsi %}
+  {% set mac = technicals.macd %}
+  {% set bb  = technicals.bollinger_bands %}
+  {% set vol = technicals.volume_analysis %}
+  {% set f   = fundamentals %}
+
+  <section class="results">
+    <div class="container">
+
+      <!-- Stock Overview -->
+      <div class="stock-overview">
+        <div>
+          <div class="stock-name">{{ f.company_name }}</div>
+          <div>
+            <span class="stock-symbol-badge">{{ symbol }}</span>
+            <span class="stock-symbol-badge">{{ f.currency }}</span>
+          </div>
+          <div class="stock-sector" style="margin-top:8px">
+            🏭 {{ f.sector or 'N/A' }} &rsaquo; {{ f.industry or 'N/A' }}
+          </div>
+          <div class="stock-sector" style="margin-top:4px">
+            🏦 Market Cap: <strong class="mono">{{ f.market_cap_cr | fmt_crore }}</strong>
+            &nbsp;·&nbsp;
+            📡 Beta: <strong class="mono">{{ f.beta | fmt_num }}</strong>
+          </div>
+        </div>
+        <div class="price-block">
+          <div class="current-price">
+            <span class="price-currency">₹</span>{{ ma.current_price | fmt_num }}
+          </div>
+          {% if f.analyst_rating and f.analyst_rating != 'N/A' %}
+          <div>
+            {% set r = f.analyst_rating | upper %}
+            <span class="analyst-rating-badge
+              {% if 'BUY' in r or 'STRONG' in r %}verdict-buy
+              {% elif 'SELL' in r %}verdict-sell
+              {% else %}verdict-hold{% endif %}">
+              ⭐ {{ f.analyst_rating | upper }}
+            </span>
+          </div>
+          {% endif %}
+          {% if f.analyst_target %}
+          <div style="font-size:12px;color:var(--text-3);margin-top:6px">
+            Analyst target: <span class="mono" style="color:var(--text-2)">₹{{ f.analyst_target | fmt_num }}</span>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- 52-Week Range -->
+      {% if f.fifty_two_week_high and f.fifty_two_week_low %}
+      <div class="range-card">
+        <div class="range-header">
+          <span class="range-title">52-Week Range</span>
+          <span class="range-current mono">Current: ₹{{ ma.current_price | fmt_num }}</span>
+        </div>
+        <div class="range-bar-wrap">
+          <div class="range-gradient"></div>
+          {% if position_52w is not none %}
+          <div class="range-marker" style="left: {{ position_52w | clamp(2, 98) }}%"></div>
+          {% endif %}
+        </div>
+        <div class="range-labels">
+          <span class="range-label-low">₹{{ f.fifty_two_week_low | fmt_num }} Low</span>
+          {% if position_52w is not none %}
+          <span style="color:var(--text-3)">{{ position_52w }}% from low</span>
+          {% endif %}
+          <span class="range-label-high">₹{{ f.fifty_two_week_high | fmt_num }} High</span>
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- ── Verdicts ─────────────────────────────────── -->
+      <div class="verdicts-row">
+
+        <div class="verdict-card {{ verdicts.short_term | verdict_class }}">
+          <div class="verdict-timeframe">Short-Term Verdict</div>
+          <div class="verdict-horizon">1 – 4 Weeks</div>
+          <div class="verdict-badge">{{ verdicts.short_term }}</div>
+        </div>
+
+        <div class="verdict-card {{ verdicts.long_term | verdict_class }}">
+          <div class="verdict-timeframe">Long-Term Verdict</div>
+          <div class="verdict-horizon">1 – 3 Years</div>
+          <div class="verdict-badge">{{ verdicts.long_term }}</div>
+        </div>
+
+      </div>
+
+      <!-- ── Technical Indicators ───────────────────── -->
+      <h2 class="section-title">📐 Technical Indicators</h2>
+      <div class="tech-grid">
+
+        <!-- Moving Averages -->
+        <div class="indicator-card">
+          <div class="card-label">Moving Averages</div>
+
+          <div class="ma-row">
+            <span class="ma-label" style="color:var(--text-2);font-weight:600">Current</span>
+            <span class="ma-value price-large mono">₹{{ ma.current_price | fmt_num }}</span>
+          </div>
+
+          <div class="ma-row" style="margin-top:10px">
+            <span class="ma-label">MA-50</span>
+            <span class="ma-value mono">{{ ma.ma50 | fmt_num }}</span>
+            {% if ma.price_vs_ma50 is not none %}
+            <span class="pct-tag {{ ma.price_vs_ma50 | pct_class }}">{{ ma.price_vs_ma50 | fmt_pct }}</span>
+            {% endif %}
+          </div>
+
+          <div class="ma-row">
+            <span class="ma-label">MA-200</span>
+            <span class="ma-value mono">{{ ma.ma200 | fmt_num }}</span>
+            {% if ma.price_vs_ma200 is not none %}
+            <span class="pct-tag {{ ma.price_vs_ma200 | pct_class }}">{{ ma.price_vs_ma200 | fmt_pct }}</span>
+            {% endif %}
+          </div>
+
+          <div class="cross-badge {{ 'golden' if ma.golden_cross else 'death' }}">
+            {{ '⚡ Golden Cross' if ma.golden_cross else '⚠️ Death Cross' }}
+          </div>
+        </div>
+
+        <!-- RSI -->
+        <div class="indicator-card">
+          <div class="card-label">RSI — 14 Day</div>
+          <div class="rsi-number
+            {{ 'rsi-overbought' if rsi.rsi >= 70 else ('rsi-oversold' if rsi.rsi <= 30 else 'rsi-neutral') }}">
+            {{ rsi.rsi }}
+          </div>
+
+          <div class="rsi-gauge-wrap">
+            <div class="rsi-track">
+              <div class="rsi-zone-oversold"></div>
+              <div class="rsi-zone-neutral"></div>
+              <div class="rsi-zone-overbought"></div>
+            </div>
+            <div class="rsi-pin" style="left: {{ rsi.rsi | clamp(2, 98) }}%"></div>
+          </div>
+
+          <div class="rsi-axis">
+            <span>0</span><span>30</span><span style="margin-left:auto">70</span><span>100</span>
+          </div>
+          <div class="rsi-signal-tag">
+            {% if rsi.signal == 'OVERBOUGHT' %}🔴{% elif rsi.signal == 'OVERSOLD' %}🟢{% else %}🟡{% endif %}
+            {{ rsi.signal }}
+          </div>
+        </div>
+
+        <!-- MACD -->
+        <div class="indicator-card">
+          <div class="card-label">MACD (12, 26, 9)</div>
+
+          <div class="macd-row">
+            <span class="macd-row-label">MACD Line</span>
+            <span class="macd-row-val mono">{{ mac.macd | fmt_num(4) }}</span>
+          </div>
+          <div class="macd-row">
+            <span class="macd-row-label">Signal Line</span>
+            <span class="macd-row-val mono">{{ mac.signal | fmt_num(4) }}</span>
+          </div>
+          <div class="macd-row">
+            <span class="macd-row-label">Histogram</span>
+            <span class="macd-row-val mono {{ 'positive' if mac.bullish else 'negative' }}">
+              {{ '+' if mac.bullish else '' }}{{ mac.histogram | fmt_num(4) }}
+            </span>
+          </div>
+
+          <div class="macd-trend-badge {{ 'bullish' if mac.bullish else 'bearish' }}">
+            {{ '📈 Bullish' if mac.bullish else '📉 Bearish' }} Momentum
+          </div>
+        </div>
+
+        <!-- Bollinger Bands -->
+        <div class="indicator-card">
+          <div class="card-label">Bollinger Bands — 20D</div>
+
+          <div class="bb-row">
+            <span class="bb-label">Upper Band</span>
+            <span class="bb-val mono negative">{{ bb.upper | fmt_num }}</span>
+          </div>
+          <div class="bb-row">
+            <span class="bb-label">Middle (SMA)</span>
+            <span class="bb-val mono bb-middle-val">{{ bb.middle | fmt_num }}</span>
+          </div>
+          <div class="bb-row">
+            <span class="bb-label">Lower Band</span>
+            <span class="bb-val mono positive">{{ bb.lower | fmt_num }}</span>
+          </div>
+          <div class="bb-row">
+            <span class="bb-label">Bandwidth</span>
+            <span class="bb-val mono">{{ bb.bandwidth }}%</span>
+          </div>
+
+          <div class="bb-position-tag">{{ bb.position }}</div>
+        </div>
+
+        <!-- Volume -->
+        <div class="indicator-card">
+          <div class="card-label">Volume Analysis</div>
+
+          {% set vr = vol.volume_ratio or 0 %}
+          <div class="vol-ratio {{ 'above' if vol.above_average else 'below' }}">
+            {{ vr }}x
+          </div>
+          <div class="vol-label">{{ 'Above average 📈' if vol.above_average else 'Below average 📉' }}</div>
+
+          <div class="vol-bar-wrap">
+            {% set bar_pct = [vr / 2.5 * 100, 100] | min %}
+            <div class="vol-bar-fill {{ 'above' if vol.above_average else 'below' }}"
+                 style="width: {{ bar_pct }}%"></div>
+          </div>
+
+          <div class="vol-meta" style="margin-top:10px">
+            <div>Today &nbsp;&nbsp; {{ vol.latest_volume | fmt_vol }}</div>
+            <div style="margin-top:4px">Avg 20D &nbsp;{{ vol.avg_volume_20d | fmt_vol }}</div>
+          </div>
+        </div>
+
+      </div><!-- /tech-grid -->
+
+      <!-- ── Fundamental Data ────────────────────────── -->
+      <h2 class="section-title">📊 Fundamental Data</h2>
+      <div class="stats-grid">
+
+        <div class="stat-card">
+          <span class="stat-icon">💹</span>
+          <div class="stat-label">P/E Ratio</div>
+          <div class="stat-value">{{ f.pe_ratio | fmt_num }}</div>
+        </div>
+
+        <div class="stat-card">
+          <span class="stat-icon">📘</span>
+          <div class="stat-label">P/B Ratio</div>
+          <div class="stat-value">{{ f.pb_ratio | fmt_num }}</div>
+        </div>
+
+        <div class="stat-card">
+          <span class="stat-icon">📈</span>
+          <div class="stat-label">Revenue Growth</div>
+          <div class="stat-value {{ f.revenue_growth | pct_class }}">{{ f.revenue_growth | fmt_pct }}</div>
+        </div>
+
+        <div class="stat-card">
+          <span class="stat-icon">💰</span>
+          <div class="stat-label">Earnings Growth</div>
+          <div class="stat-value {{ f.earnings_growth | pct_class }}">{{ f.earnings_growth | fmt_pct }}</div>
+        </div>
+
+        <div class="stat-card">
+          <span class="stat-icon">🏆</span>
+          <div class="stat-label">Return on Equity</div>
+          <div class="stat-value {{ f.roe | pct_class }}">{{ f.roe | fmt_pct }}</div>
+        </div>
+
+        <div class="stat-card">
+          <span class="stat-icon">🏗️</span>
+          <div class="stat-label">Return on Assets</div>
+          <div class="stat-value {{ f.roa | pct_class }}">{{ f.roa | fmt_pct }}</div>
+        </div>
+
+        <div class="stat-card">
+          <span class="stat-icon">⚖️</span>
+          <div class="stat-label">Debt / Equity</div>
+          {% set de = f.debt_to_equity %}
+          <div class="stat-value {{ 'negative' if de and de > 100 else ('positive' if de and de < 40 else '') }}">
+            {{ de | fmt_num }}
+          </div>
+        </div>
+
+        <div class="stat-card">
+          <span class="stat-icon">🔄</span>
+          <div class="stat-label">Current Ratio</div>
+          {% set cr = f.current_ratio %}
+          <div class="stat-value {{ 'positive' if cr and cr > 1.5 else ('negative' if cr and cr < 1 else '') }}">
+            {{ cr | fmt_num }}
+          </div>
+        </div>
+
+        <div class="stat-card">
+          <span class="stat-icon">💵</span>
+          <div class="stat-label">Dividend Yield</div>
+          <div class="stat-value {{ 'positive' if f.dividend_yield else '' }}">{{ f.dividend_yield | fmt_pct }}</div>
+        </div>
+
+        <div class="stat-card">
+          <span class="stat-icon">🏦</span>
+          <div class="stat-label">Market Cap</div>
+          <div class="stat-value sm">{{ f.market_cap_cr | fmt_crore }}</div>
+        </div>
+
+        <div class="stat-card">
+          <span class="stat-icon">📉</span>
+          <div class="stat-label">52-Week Low</div>
+          <div class="stat-value sm mono">₹{{ f.fifty_two_week_low | fmt_num }}</div>
+        </div>
+
+        <div class="stat-card">
+          <span class="stat-icon">📈</span>
+          <div class="stat-label">52-Week High</div>
+          <div class="stat-value sm mono">₹{{ f.fifty_two_week_high | fmt_num }}</div>
+        </div>
+
+      </div><!-- /stats-grid -->
+
+      <!-- ── AI Analysis ─────────────────────────────── -->
+      <h2 class="section-title">🤖 AI Analysis</h2>
+      <div class="analysis-card">
+        <div class="analysis-header">
+          <span class="analysis-header-icon">🧠</span>
+          <div>
+            <h3>Comprehensive Stock Analysis</h3>
+            <p>Generated by Claude AI based on live market data</p>
+          </div>
+          <span class="claude-badge">Claude Opus 4.6</span>
+        </div>
+        <div id="aiAnalysisContent">
+          <!-- Markdown rendered by marked.js -->
+          <noscript>
+            <pre style="white-space:pre-wrap;font-size:13px;color:var(--text-2)">{{ analysis }}</pre>
+          </noscript>
+        </div>
+      </div>
+
+    </div><!-- /container -->
+  </section>
+
+  {% else %}
+
+  <!-- ── How It Works (landing page) ──────────────────── -->
+  <section class="how-it-works">
+    <div class="container">
+      <p class="how-it-works-title">How it works</p>
+      <div class="steps-grid">
+
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-icon">🔍</div>
+          <h3>Enter Stock Symbol</h3>
+          <p>Type any NSE or BSE symbol — RELIANCE.NS, TCS.NS, HDFCBANK.NS. We auto-append .NS if you skip the suffix.</p>
+        </div>
+
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-icon">📊</div>
+          <h3>Live Data Analysis</h3>
+          <p>We fetch 1 year of real market data and calculate RSI, MACD, Bollinger Bands, moving averages &amp; more.</p>
+        </div>
+
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-icon">🤖</div>
+          <h3>Claude AI Verdict</h3>
+          <p>Claude AI synthesizes all indicators into a structured BUY / HOLD / SELL recommendation with price targets.</p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  {% endif %}
+
+</main>
+
+<!-- ── Footer ──────────────────────────────────────────── -->
+<footer>
+  <div class="container">
+    <p class="disclaimer">
+      <strong>⚠️ Disclaimer:</strong>
+      StockSense AI is for <strong>educational purposes only</strong> and does NOT constitute financial advice.
+      All analysis is generated by AI and may be inaccurate. Always do your own research and consult a
+      registered financial advisor before making any investment decisions. Past performance is not indicative of future results.
+    </p>
+    <p style="font-size:11px;color:var(--text-3);margin-top:12px">
+      Data sourced from Yahoo Finance via yfinance · Analysis powered by Claude AI
+    </p>
+  </div>
+</footer>
+
+<!-- ── Scripts ─────────────────────────────────────────── -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+  // Show loading overlay on form submit
+  document.getElementById('analyzeForm').addEventListener('submit', function () {
+    const sym = document.getElementById('symbolInput').value.trim().toUpperCase() || '…';
+    document.getElementById('loadingSymbol').textContent = sym;
+    document.getElementById('loadingOverlay').classList.remove('hidden');
+  });
+
+  // Quick-fill + submit from chip buttons
+  function fillAndSubmit(sym) {
+    document.getElementById('symbolInput').value = sym;
+    document.getElementById('loadingSymbol').textContent = sym;
+    document.getElementById('loadingOverlay').classList.remove('hidden');
+    document.getElementById('analyzeForm').submit();
+  }
+
+  {% if analysis %}
+  // Render AI analysis markdown
+  (function () {
+    marked.setOptions({ breaks: true, gfm: true });
+    const raw = {{ analysis | tojson }};
+    document.getElementById('aiAnalysisContent').innerHTML = marked.parse(raw);
+  })();
+  {% endif %}
+
+  {% if technicals %}
+  // Smooth scroll to results on page load
+  window.addEventListener('load', function () {
+    const results = document.querySelector('.results');
+    if (results) {
+      setTimeout(function () {
+        results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 200);
+    }
+  });
+  {% endif %}
+</script>
+
+</body>
+</html>
